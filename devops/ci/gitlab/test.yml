@@ -1,5 +1,21 @@
-test_job:
+.feature-branch-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
+
+test_backend_get:
   stage: test
   image: node:22-alpine
+  extends: .feature-branch-rules
+  cache:
+    key: backend-$CI_COMMIT_REF_SLUG
+    paths:
+      - backend/node_modules/
+  allow_failure: false
   script:
-    - echo "Success..."
+    - npm install -g pnpm --quiet
+    - cd backend
+    - pnpm install --frozen-lockfile
+    - pnpm run test-get
