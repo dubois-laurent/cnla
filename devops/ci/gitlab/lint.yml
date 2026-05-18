@@ -1,0 +1,57 @@
+.feature-branch-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
+
+lint:compose:
+  stage: lint
+  image: docker:cli
+  extends: .feature-branch-rules
+  allow_failure: false
+  script:
+    - docker compose -f docker-compose.yml config --quiet
+
+lint:hadolint:
+  stage: lint
+  image: hadolint/hadolint:latest-alpine
+  extends: .feature-branch-rules
+  allow_failure: false
+  script:
+    - find . -name "Dockerfile*" -exec hadolint {} \;
+
+lint:yaml:
+  stage: lint
+  image: python:3.12-alpine
+  extends: .feature-branch-rules
+  allow_failure: false
+  script:
+    - pip install yamllint --quiet
+    - yamllint -d relaxed docker-compose.yml devops/ci/
+
+lint:shell:
+  stage: lint
+  image: koalaman/shellcheck-alpine:stable
+  extends: .feature-branch-rules
+  allow_failure: false
+  script:
+    - find . -name "*.sh" | xargs -r shellcheck
+
+lint:backend:
+  stage: lint
+  image: node:20-alpine
+  extends: .feature-branch-rules
+  allow_failure: false
+  script:
+    - find backend -name "*.js" | xargs node --check
+
+lint:eslint:
+  stage: lint
+  image: node:20-alpine
+  extends: .feature-branch-rules
+  allow_failure: false
+  script:
+    - npm install -g pnpm --quiet
+    - cd frontend && pnpm install --frozen-lockfile
+    - pnpm run lint
