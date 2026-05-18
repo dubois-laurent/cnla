@@ -1,9 +1,6 @@
 stages:
   - test
- 
-test_job:
-  stage: test
-  image: node:22-alpine
-  script:
-    - echo "Success..."
-  
+
+include :
+  -local: 'devops/ci/gitlab/test.yml'
+  -local: 'devops/ci/gitlab/lint.yml'
