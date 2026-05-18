@@ -38,8 +38,6 @@ services:
     build:
       context: .
       dockerfile: devops/docker/frontend/Dockerfile.frontend.dev
-    environment:
-      VITE_FRONTEND_API_URL: http://localhost:3000
     ports:
       - "5173:5173"
     volumes:
