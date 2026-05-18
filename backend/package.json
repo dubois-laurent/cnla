@@ -4,12 +4,17 @@
   "description": "backend example with express and postgres",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test-get": "jest tests/get.test.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "devDependencies": {
+  "jest": "^29.0.0",
+  "supertest": "^7.0.0"
+},
   "dependencies": {
     "express": "^5.2.1",
     "pg": "^8.20.0"
