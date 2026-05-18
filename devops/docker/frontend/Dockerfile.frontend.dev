@@ -1,1 +1,14 @@
+# Development Dockerfile for the frontend React + Vite app.
+# Starts the Vite dev server with host 0.0.0.0 so it is reachable from Docker.
+
+FROM node:20-alpine
+WORKDIR /app
+
+RUN npm install -g pnpm@latest
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+EXPOSE 5173
+CMD ["pnpm", "dev", "--host", "0.0.0.0", "--port", "5173"]
 
