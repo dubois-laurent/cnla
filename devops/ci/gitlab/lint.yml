@@ -1,0 +1,39 @@
+.feature-branch-rules:
+  $CI_PIPELINE_SOURCE == "merge_request_event"
+  $CI_COMMIT_BRANCH == "dev"
+  $CI_PIPELINE_SOURCE == "push"
+
+lint:compose: 
+  stage :lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  script: 
+    # Vérifier les fichiers docjer (notammene docker-compose.yml) )
+
+lint:yml: 
+  stage :lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  script: 
+    # Vérifier les fichiers docjer (notammene docker-compose.yml) )
+
+lint:shell: 
+  stage :lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  script: 
+    # Vérifier les fichiers docjer (notammene docker-compose.yml) )
+
+lint:backend: 
+  stage :lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  script: 
+    # Vérifier les fichiers docjer (notammene docker-compose.yml) )
+
+lint:eslint: 
+  stage :lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  script: 
+    # Vérifier les fichiers docjer (notammene docker-compose.yml) )
