@@ -1,0 +1,5 @@
+stages: 
+  - test
+
+include:
+  - local: 'devops/ci/gitlab/test.yml'
