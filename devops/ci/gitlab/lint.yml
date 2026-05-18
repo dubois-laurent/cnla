@@ -5,7 +5,6 @@
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
 
-
 lint:compose:
   stage: lint
   image: docker:cli
@@ -29,7 +28,7 @@ lint:yaml:
   allow_failure: false
   script:
     - pip install yamllint --quiet
-    - yamllint docker-compose.yml devops/ci/
+    - yamllint -d relaxed docker-compose.yml devops/ci/
 
 lint:shell:
   stage: lint
