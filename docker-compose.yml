@@ -1,19 +1,68 @@
 services:
-  backend:
-    build: ./backend
-    ports:
-      - "3000:3000"
-    env_file:
-      - ./backend/.env
-    depends_on:
-      - postgres
 
   postgres:
-    image: postgres:16
-    restart: always
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: appdb
+      POSTGRES_DB: ${POSTGRES_DB:-cnla}
+      POSTGRES_USER: ${POSTGRES_USER:-cnla}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cnla}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cnla} -d ${POSTGRES_DB:-cnla}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cnla
+
+  backend:
+    build:
+      context: .
+      dockerfile: devops/docker/backend/Dockerfile.backend.dev
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-cnla}:${POSTGRES_PASSWORD:-cnla}@postgres:5432/${POSTGRES_DB:-cnla}
+      PORT: 3000
     ports:
-      - "5432:5432"
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cnla
+
+  frontend:
+    build:
+      context: .
+      dockerfile: devops/docker/frontend/Dockerfile.frontend.dev
+    environment:
+      VITE_FRONTEND_API_URL: http://localhost:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - cnla
+
+  nginx:
+    build:
+      context: .
+      dockerfile: devops/docker/nginx/Dockerfile.nginx.dev
+    ports:
+      - "8088:80"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - cnla
+
+volumes:
+  postgres_data:
+
+networks:
+  cnla:
+    driver: bridge
