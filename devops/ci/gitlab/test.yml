@@ -1,13 +1,38 @@
-# Use Trivy for scaning images : 0.70.0
+# Use Trivy for scanning images : 0.70.0
 
 test:unit:
-  # ...
+  stage: test
+  extends: .node-job
+  script:
+    - cd backend
+    - pnpm install
+    - node --test test/unit/app.test.js test/unit/connection-string.test.js
 
 test:integration:
-  # ...
+  stage: test
+  extends: .docker-job
+  script:
+    - docker compose up -d db backend
+    - timeout 60 sh -c 'until curl -sf http://docker:3000/ >/dev/null; do sleep 2; done'
+    - apk add --no-cache nodejs
+    - API_URL=http://docker:3000 node --test backend/test/integration/api.integration.test.js
 
-test:2e2:
-  # ...
+test:e2e:
+  stage: test
+  extends: .docker-job
+  script:
+    - docker compose up -d
+    - timeout 120 sh -c 'until curl -sf http://docker:8088/ >/dev/null; do sleep 2; done'
+    - apk add --no-cache nodejs
+    - E2E_BASE_URL=http://docker:8088 node --test backend/test/e2e/nginx.e2e.test.js
 
-test:images:
-  # ...
+# test:images:
+#   stage: test
+#   extends: .docker-job
+#   script:
+#     - docker build -t test-backend -f devops/docker/backend/Dockerfile.backend.prod .
+#     - docker build -t test-frontend -f devops/docker/frontend/Dockerfile.frontend.prod .
+#     - wget -qO /tmp/trivy.tar.gz https://github.com/aquasecurity/trivy/releases/download/v0.70.0/trivy_0.70.0_Linux-64bit.tar.gz
+#     - tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+#     - trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress test-backend
+#     - trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress test-frontend
