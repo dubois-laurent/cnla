@@ -1,7 +1,11 @@
-FROM nginx:alpine
 
-# Chemin relatif au context (racine du repo)
-COPY devops/docker/nginx/nginx.dev.conf /etc/nginx/conf.d/default.conf
 
-# nginx écoute sur 80 dans le container ; docker-compose mappe 8088→80 côté hôte
+FROM nginx:1.27-alpine AS base
+
+FROM base AS development
+
 EXPOSE 80
+
+STOPSIGNAL SIGQUIT
+
+CMD ["nginx", "-g", "daemon off;"]
