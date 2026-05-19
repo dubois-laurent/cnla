@@ -28,7 +28,7 @@
   image: node:22-alpine
   extends: .feature-branch-rules
   before_script:
-    - corepack enable && corepack prepare pnpm@9 --activate
+    - corepack enable && corepack prepare pnpm@latest --activate
 
 lint:compose:
   stage: lint
