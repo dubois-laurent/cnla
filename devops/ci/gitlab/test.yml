@@ -18,8 +18,8 @@ test:integration:
     - echo "=== Démarrage des services db et backend ==="
     - docker compose up -d db backend
     - echo "=== Attente que le backend soit prêt ==="
-    - docker run --rm --network cnla_default node:22-alpine
-        sh -c 'until wget -qO- http://backend:3000/ >/dev/null 2>&1; do sleep 2; done'
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 60 sh -c "until nc -z backend 3000; do sleep 1; done"'
     - echo "=== Backend prêt — lancement des tests d'intégration ==="
     - docker run --rm
         --network cnla_default
@@ -36,9 +36,15 @@ test:e2e:
   script:
     - echo "=== Démarrage de la stack complète ==="
     - docker compose up -d
+    - echo "=== Attente que le backend soit prêt ==="
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 60 sh -c "until nc -z backend 3000; do sleep 1; done"'
+    - echo "=== Attente que le frontend Vite soit prêt ==="
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 120 sh -c "until nc -z frontend 5173; do sleep 1; done"'
     - echo "=== Attente que nginx soit prêt ==="
-    - docker run --rm --network cnla_default node:22-alpine
-        sh -c 'until wget -qO- http://nginx/ >/dev/null 2>&1; do sleep 2; done'
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 30 sh -c "until nc -z nginx 80; do sleep 1; done"'
     - echo "=== Nginx prêt — lancement des tests E2E ==="
     - docker run --rm
         --network cnla_default
