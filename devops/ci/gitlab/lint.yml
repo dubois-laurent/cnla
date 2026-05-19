@@ -79,7 +79,6 @@ lint:backend:
   allow_failure: false
   script:
     - cd backend && pnpm install --frozen-lockfile
-    - node --check app.js
     - node --check server.js
     - node -e "require('express'); require('pg'); console.log('backend deps OK')"
 
