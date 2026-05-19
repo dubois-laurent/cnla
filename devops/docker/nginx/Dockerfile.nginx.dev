@@ -1,2 +1,11 @@
 
 
+FROM nginx:1.27-alpine AS base
+
+FROM base AS development
+
+EXPOSE 80
+
+STOPSIGNAL SIGQUIT
+
+CMD ["nginx", "-g", "daemon off;"]
