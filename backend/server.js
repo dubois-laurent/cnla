@@ -12,7 +12,11 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  console.error("Impossible de démarrer le serveur:", err);
-  process.exit(1);
-});
+if (process.env.NODE_ENV !== "test") {
+  main().catch((err) => {
+    console.error("Impossible de démarrer le serveur:", err);
+    process.exit(1);
+  });
+}
+
+module.exports = app;

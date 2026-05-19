@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 3000
 
 # Lancer le serveur
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]

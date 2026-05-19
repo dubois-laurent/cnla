@@ -1,2 +1,24 @@
-include:
-  - local: 'devops/ci/gitlab/pipeline.yml'
+stages:
+  - test
+  - build
+
+test_backend:
+  stage: test
+  image: node:20
+
+  before_script:
+    - cd backend
+    - npm install
+
+  script:
+    - npm test
+
+build_backend:
+  stage: build
+  image: docker:24
+
+  services:
+    - docker:24-dind
+
+  script:
+    - docker build -t backend ./backend
