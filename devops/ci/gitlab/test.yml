@@ -1,4 +1,13 @@
-test:
-  stage: test
-  script:
-    - echo "Success..."
+# Use Trivy for scaning images : 0.70.0
+
+test:unit:
+  # ...
+
+test:integration:
+  # ...
+
+test:2e2:
+  # ...
+
+test:images:
+  # ...
