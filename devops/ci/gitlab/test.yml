@@ -1,4 +1,67 @@
-test:
+# Use Trivy for scanning images : 0.70.0
+
+test:unit:
   stage: test
+  extends: .node-job
   script:
-    - echo "Success..."
+    - echo "=== Installation des dépendances backend ==="
+    - cd backend
+    - pnpm install
+    - echo "=== Lancement des tests unitaires ==="
+    - node --test test/unit/app.test.js test/unit/connection-string.test.js
+    - echo "=== Tests unitaires terminés ==="
+
+test:integration:
+  stage: test
+  extends: .docker-job
+  script:
+    - echo "=== Démarrage des services db et backend ==="
+    - docker compose up -d db backend
+    - echo "=== Attente que le backend soit prêt ==="
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 60 sh -c "until nc -z backend 3000; do sleep 1; done"'
+    - echo "=== Backend prêt — lancement des tests d'intégration ==="
+    - docker run --rm
+        --network cnla_default
+        -v "$PWD/backend:/app"
+        -w /app
+        -e API_URL=http://backend:3000
+        node:22-alpine
+        node --test test/integration/api.integration.test.js
+    - echo "=== Tests d'intégration terminés ==="
+
+test:e2e:
+  stage: test
+  extends: .docker-job
+  script:
+    - echo "=== Démarrage de la stack complète ==="
+    - docker compose up -d
+    - echo "=== Attente que le backend soit prêt ==="
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 60 sh -c "until nc -z backend 3000; do sleep 1; done"'
+    - echo "=== Attente que le frontend Vite soit prêt ==="
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 120 sh -c "until nc -z frontend 5173; do sleep 1; done"'
+    - echo "=== Attente que nginx soit prêt ==="
+    - docker run --rm --network cnla_default alpine
+        sh -c 'apk add -q netcat-openbsd && timeout 30 sh -c "until nc -z nginx 80; do sleep 1; done"'
+    - echo "=== Nginx prêt — lancement des tests E2E ==="
+    - docker run --rm
+        --network cnla_default
+        -v "$PWD/backend:/app"
+        -w /app
+        -e E2E_BASE_URL=http://nginx
+        node:22-alpine
+        node --test test/e2e/nginx.e2e.test.js
+    - echo "=== Tests E2E terminés ==="
+
+# test:images:
+#   stage: test
+#   extends: .docker-job
+#   script:
+#     - docker build -t test-backend -f devops/docker/backend/Dockerfile.backend.prod .
+#     - docker build -t test-frontend -f devops/docker/frontend/Dockerfile.frontend.prod .
+#     - wget -qO /tmp/trivy.tar.gz https://github.com/aquasecurity/trivy/releases/download/v0.70.0/trivy_0.70.0_Linux-64bit.tar.gz
+#     - tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+#     - trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress test-backend
+#     - trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress test-frontend
