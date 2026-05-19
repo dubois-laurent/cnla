@@ -1,7 +1,57 @@
-# Rules branchs
-# Build docker
-# Variables : CI_COMMIT_SHA , CI_COMMIT_SHORT_SHA, CI_REGISTRY_IMAGE
+.build-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# build:
-#   stage: build
-#   # ...
+.build-docker:
+  stage: build
+  image: docker:cli
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  extends: .build-rules
+  allow_failure: false
+
+build:frontend:
+  extends: .build-docker
+  script:
+    - docker pull $CI_REGISTRY_IMAGE/frontend:latest || true
+    - docker build
+        --cache-from $CI_REGISTRY_IMAGE/frontend:latest
+        -f devops/docker/frontend/Dockerfile.frontend.prod
+        -t $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA
+        -t $CI_REGISTRY_IMAGE/frontend:latest
+        .
+    - docker push $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+
+build:backend:
+  extends: .build-docker
+  script:
+    - docker pull $CI_REGISTRY_IMAGE/backend:latest || true
+    - docker build
+        --cache-from $CI_REGISTRY_IMAGE/backend:latest
+        -f devops/docker/backend/Dockerfile.backend.prod
+        -t $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA
+        -t $CI_REGISTRY_IMAGE/backend:latest
+        .
+    - docker push $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/backend:latest
+
+build:nginx:
+  extends: .build-docker
+  script:
+    - docker pull $CI_REGISTRY_IMAGE/nginx:latest || true
+    - docker build
+        --cache-from $CI_REGISTRY_IMAGE/nginx:latest
+        -f devops/docker/nginx/Dockerfile.nginx.prod
+        -t $CI_REGISTRY_IMAGE/nginx:$CI_COMMIT_SHORT_SHA
+        -t $CI_REGISTRY_IMAGE/nginx:latest
+        .
+    - docker push $CI_REGISTRY_IMAGE/nginx:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/nginx:latest
