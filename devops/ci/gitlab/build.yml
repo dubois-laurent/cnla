@@ -2,6 +2,6 @@
 # Build docker
 # Variables : CI_COMMIT_SHA , CI_COMMIT_SHORT_SHA, CI_REGISTRY_IMAGE
 
-build:
-  stage: build
-  # ...
+# build:
+#   stage: build
+#   # ...
