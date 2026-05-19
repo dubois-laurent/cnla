@@ -1,15 +1,27 @@
-# Development Dockerfile for the backend Node.js + Express app.
-# Source code is mounted as a volume by docker-compose — only deps are baked in.
+FROM node:22-alpine AS deps
 
-FROM node:22-alpine
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
 WORKDIR /app
 
-RUN npm install -g pnpm@latest
-
-# Les chemins sont relatifs au context (racine du repo)
 COPY backend/package.json backend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
+FROM node:22-alpine AS development
+
+RUN corepack enable && corepack prepare pnpm@9 --activate
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY backend/package.json backend/pnpm-lock.yaml ./
+COPY backend/ ./
+
+RUN chown -R node:node /app
+
+USER node
+
 EXPOSE 3000
-# --watch : hot-reload natif Node 18+, pas besoin de nodemon
-CMD ["node", "--watch", "server.js"]
+
+CMD ["pnpm", "start"]
+

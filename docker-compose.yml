@@ -1,50 +1,52 @@
 services:
-
-  postgres:
+  db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-cnla}
-      POSTGRES_USER: ${POSTGRES_USER:-cnla}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cnla}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+      - ./devops/docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cnla} -d ${POSTGRES_DB:-cnla}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 10
-    networks:
-      - cnla
+      retries: 5
 
   backend:
     build:
       context: .
       dockerfile: devops/docker/backend/Dockerfile.backend.dev
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-cnla}:${POSTGRES_PASSWORD:-cnla}@postgres:5432/${POSTGRES_DB:-cnla}
-      PORT: 3000
+      NODE_ENV: development
+      PORT: "3000"
+      CI: "true"
     ports:
       - "3000:3000"
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-    networks:
-      - cnla
 
   frontend:
     build:
       context: .
       dockerfile: devops/docker/frontend/Dockerfile.frontend.dev
+    env_file:
+      - .env
+    environment:
+      VITE_APP_ENV: ${VITE_APP_ENV}
+      VITE_FRONTEND_URL: ${VITE_FRONTEND_URL}
+      VITE_FRONTEND_API_URL: ${VITE_FRONTEND_API_URL}
+      CI: "true"
     ports:
       - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    networks:
-      - cnla
+    depends_on:
+      - backend
 
   nginx:
     build:
@@ -52,15 +54,11 @@ services:
       dockerfile: devops/docker/nginx/Dockerfile.nginx.dev
     ports:
       - "8088:80"
+    volumes:
+      - ./devops/docker/nginx/${NGINX_CONF}:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - frontend
       - backend
-    networks:
-      - cnla
+      - frontend
 
 volumes:
-  postgres_data:
-
-networks:
-  cnla:
-    driver: bridge
+  pgdata:
