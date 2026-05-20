@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REGION="eu-central-2"
+REGION="eu-central-1"
 export AWS_DEFAULT_REGION=$REGION
 
 echo "=== Création VPC PREPROD ==="
