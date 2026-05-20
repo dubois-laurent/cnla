@@ -4,7 +4,7 @@ variables:
 .develop-branch-rules:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
 
@@ -53,3 +53,17 @@ build:
         docker push "${target}:${CI_COMMIT_REF_SLUG}"
         echo "Pushed ${target}:${CI_COMMIT_SHORT_SHA} ${target}:${CI_COMMIT_SHA} ${target}:${CI_COMMIT_REF_SLUG}"
       done
+
+
+# TP JOUR 3 : push vers ecr
+
+# #
+# Récupérez un jeton d'authentification et authentifiez votre client Docker auprès de votre registre. Utilisez l{AWSTOOL} :
+# aws ecr get-login-password --region eu-west-3 | docker login --username AWS --password-stdin 622333992348.dkr.ecr.eu-west-3.amazonaws.com
+# Remarque : si vous recevez une erreur en utilisant l{AWSTOOL}, assurez-vous que vous avez installé la dernière version de lAWS CLI et Docker.
+# Créez votre image Docker à l'aide de la commande suivante. Pour plus d'informations sur la création complète d'un fichier Docker, reportez-vous aux instructions ici . Si vous avez déjà créé l'image, ignorez cette étape :
+# docker build -t gr8/aws-hetic .
+# Une fois que la création est terminée, balisez votre image pour pouvoir la transférer dans ce référentiel :
+# docker tag gr8/aws-hetic:latest 622333992348.dkr.ecr.eu-west-3.amazonaws.com/gr8/aws-hetic:latest
+# Exécutez la commande suivante pour transférer cette image vers le référentiel AWS que vous avez créé :
+# docker push 622333992348.dkr.ecr.eu-west-3.amazonaws.com/gr8/aws-hetic:latest
