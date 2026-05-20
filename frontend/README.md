@@ -1,6 +1,6 @@
 # Frontend (React + Vite)
 
-Single-page app built with **React 19** and **Vite 8**. It provides a small **users** UI: list, create, update, and delete records by calling the backend REST API. Styling lives in `src/App.css` and `src/index.css`.
+Single-page app: **React 19** and **Vite 8**. Small **users** UI (list, create, update, delete) calling the backend REST API. Styles: `src/App.css`, `src/index.css`.
 
 ## Requirements
 
@@ -9,34 +9,36 @@ Single-page app built with **React 19** and **Vite 8**. It provides a small **us
 
 ## Environment variables
 
-Vite exposes only variables prefixed with `VITE_`.
+Vite only exposes variables prefixed with **`VITE_`**.
 
-| Variable                  | Used in app | Description |
-|---------------------------|-------------|---------------|
-| `VITE_FRONTEND_API_URL`   | Yes         | Base URL for API requests (no trailing slash required; it is stripped). All calls use paths such as `${VITE_FRONTEND_API_URL}/users`. If unset, requests use relative URLs (e.g. `/users`), which only work if the dev server or reverse proxy forwards `/users` to the API. |
+| Variable | Used in app | Description |
+|----------|-------------|-------------|
+| `VITE_FRONTEND_API_URL` | Yes | Base URL for API calls (trailing slash is trimmed). Requests use paths like `${VITE_FRONTEND_API_URL}/users`. If unset, requests are relative (e.g. `/users`), which only works if the dev server or reverse proxy forwards them to the API. |
 
-Other `VITE_*` variables may exist in the repo root `.env` for Docker or tooling; only `VITE_FRONTEND_API_URL` is read in `src/App.jsx`.
+The root **`.env.example`** also lists **`VITE_APP_ENV`** and **`VITE_FRONTEND_URL`** for Docker / nginx **build args** when the **production** bundle is built (see **`devops/docker/nginx/Dockerfile.nginx.prod`**).
 
 ## Full stack with Make (repo root)
 
-The root **`Makefile`** drives **Docker Compose** for Postgres, backend, frontend, and nginx. Run everything from the **repository root** (not from `frontend/`):
+From the **repository root** (not `frontend/`):
 
-1. Configure the root **`.env`** (see root `.env.example` and `devops/README.md` for Compose-specific variables such as `POSTGRES_*_DEV`, `NGINX_CONF`, and `VITE_*`).
+1. Configure **`.env`** (see **`.env.example`** and **`devops/README.md`**: Postgres, **`DATABASE_URL`**, **`VITE_*`** for the nginx image build).
 2. Start containers:
 
    ```bash
    make up
    ```
 
-3. Useful targets: `make help` (lists targets and URLs), `make logs` or `make logs s=frontend`, `make shell s=frontend`, `make down`.
+3. Targets: `make help`, `make logs` / `make logs s=frontend`, `make shell s=frontend`, `make down`.
 
-Typical URLs after `make up`:
+**Typical URLs after `make up`:**
 
-- App through nginx: **`http://localhost:8088`**
-- Vite directly: **`http://localhost:5173`**
-- API directly: **`http://localhost:3000`**
+| URL | What |
+|-----|------|
+| **`http://localhost:8088`** | **Main app** — nginx serves the **built** static SPA and proxies **`/api/v1/...`** to the backend (no Vite HMR on this port). |
+| **`http://localhost:5173`** | **Vite dev server** — HMR when you develop against this port directly. |
+| **`http://localhost:3000`** | API only |
 
-Inside Compose, env vars come from the root `.env`; align `VITE_FRONTEND_API_URL` with how you reach the API (often via nginx, e.g. `http://localhost:8088/api/v1`).
+Set **`VITE_FRONTEND_API_URL`** in **`.env`** so the **production build** (baked into the nginx image) points at the public API base, e.g. **`http://localhost:8088/api/v1`**.
 
 ## Install (local Node only)
 
@@ -47,12 +49,12 @@ pnpm install
 
 ## Scripts
 
-| Script    | Command        | Description |
-|-----------|----------------|-------------|
-| `dev`     | `vite`         | Dev server with HMR |
-| `build`   | `vite build`   | Production bundle to `dist/` |
-| `preview` | `vite preview` | Serve the production build locally |
-| `lint`    | `eslint .`     | ESLint (flat config, React Hooks + Refresh) |
+| Script | Command | Description |
+|--------|---------|-------------|
+| `dev` | `vite` | Dev server with HMR |
+| `build` | `vite build` | Output to **`dist/`** |
+| `preview` | `vite preview` | Serve **`dist/`** locally |
+| `lint` | `eslint .` | ESLint (flat config, React Hooks + Refresh) |
 
 ## Run locally (without Docker)
 
@@ -60,30 +62,26 @@ pnpm install
 pnpm dev
 ```
 
-Default dev server: **`http://0.0.0.0:5173`** (`strictPort: true` in `vite.config.js`). For the containerized stack, use **`make up`** at the repository root instead of this command.
+Dev server: **`http://0.0.0.0:5173`** (`strictPort: true` in `vite.config.js`).
 
-### API base URL
+For **`VITE_FRONTEND_API_URL`** when running **`pnpm dev`** only:
 
-Point `VITE_FRONTEND_API_URL` at wherever your Express app serves `/users` (with or without a path prefix), for example:
+- Point at the backend: **`http://localhost:3000`**, or  
+- If you use a reverse proxy that exposes **`/api/v1`**, use that base instead.
 
-- Direct backend: `http://localhost:3000`
-- Through nginx (see repo `devops/docker/nginx/nginx.dev.conf`): often something like `http://localhost:8088/api/v1` so that `${base}/users` matches the `/api/v1/...` → backend rewrite.
+Use **`frontend/.env`** or **`frontend/.env.local`** (gitignored by convention).
 
-Create a `frontend/.env` or `frontend/.env.local` (gitignored by convention) for local `pnpm dev`, or rely on the root `.env` when using **`make up`** at the repo root.
+### Vite HMR and port 8088
 
-### HMR behind nginx
-
-`vite.config.js` sets HMR to **`localhost:8088`** (WebSocket). That matches a typical setup where the browser loads the app through nginx on port **8088** while the Vite process listens on **5173** inside Docker.
+`vite.config.js` configures HMR **`clientPort` 8088** so that setups that **terminate TLS or a reverse proxy on 8088** can still attach the websocket. With the **current Compose file**, **`http://localhost:8088`** is served by **nginx with a static build**, not by proxying to Vite — use **`http://localhost:5173`** for HMR during local UI work.
 
 ## Features (current UI)
 
 - Load users on mount (`GET .../users`) with loading and error states.
-- Form to **create** (`POST .../users`) or **update** (`PUT .../users/:id`) with `email` and `name` (JSON).
-- Table listing `id`, `name`, `email`, `createdAt` (dates formatted with `fr-FR` locale).
-- **Delete** with browser confirm (`DELETE .../users/:id`).
-- Error messages combine API `error` fields and local French fallbacks (`App.jsx`).
-
-The page title and copy are **French**; API error strings may be French if the backend returns them that way.
+- Create (`POST`) / update (`PUT .../users/:id`) with `email` and `name`.
+- Table: `id`, `name`, `email`, `createdAt` (dates formatted with **`toLocaleString`** and the locale constant in **`App.jsx`**).
+- Delete with confirm (`DELETE .../users/:id`).
+- UI copy and client-side fallback messages are defined inline in **`App.jsx`** (same wording the API returns is shown when present).
 
 ## Project layout
 
@@ -96,8 +94,8 @@ frontend/
 ├── pnpm-lock.yaml
 ├── public/
 └── src/
-    ├── main.jsx       # React root + StrictMode
-    ├── App.jsx        # Users CRUD UI + fetch logic
+    ├── main.jsx
+    ├── App.jsx
     ├── App.css
     └── index.css
 ```
@@ -106,15 +104,15 @@ frontend/
 
 ```bash
 pnpm build
-pnpm preview   # optional local check of dist/
+pnpm preview   # optional check of dist/
 ```
 
-Output is static files under **`dist/`**, suitable for any static host or the production Docker image defined under `devops/docker/frontend/`.
+**`dist/`** is what the **nginx** production Dockerfile copies into the image (see **`devops/docker/nginx/`**).
 
 ## Stack summary
 
 - **React** 19 + **react-dom** 19  
-- **Vite** 8 with `@vitejs/plugin-react`  
-- **ESLint** 10 flat config: `@eslint/js`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`
+- **Vite** 8 + `@vitejs/plugin-react`  
+- **ESLint** 10 (flat config)
 
-No router, no global state library: one main component in `App.jsx`.
+No router or global state library: main logic in **`App.jsx`**.

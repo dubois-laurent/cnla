@@ -1,7 +1,55 @@
-# Rules branchs
-# Build docker
-# Variables : CI_COMMIT_SHA , CI_COMMIT_SHORT_SHA, CI_REGISTRY_IMAGE
+variables:
+  COMPOSE_PROJECT_NAME: hetic
+
+.develop-branch-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
+
+.build-docker-job:
+  image: docker:26-cli
+  extends: .develop-branch-rules
+  services:
+    - name: docker:26-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
 
 build:
   stage: build
-  # ...
+  extends: .build-docker-job
+  needs:
+    - job: lint:compose
+    - job: lint:hadolint
+    - job: lint:yaml
+    - job: lint:shell
+    - job: lint:backend
+    - job: lint:eslint
+    - job: test:unit
+    - job: test:integration
+    - job: test:e2e
+    - job: test:images
+  before_script:
+    - echo "Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA"
+    - until docker info >/dev/null 2>&1; do sleep 1; done
+    - apk add --no-cache gettext
+    - envsubst < .env.example > .env
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker compose -f docker-compose.yml build backend frontend nginx
+    - |
+      for service in backend frontend nginx; do
+        image="${COMPOSE_PROJECT_NAME}-${service}"
+        target="${CI_REGISTRY_IMAGE}/${service}"
+        docker tag "${image}" "${target}:${CI_COMMIT_SHORT_SHA}"
+        docker tag "${image}" "${target}:${CI_COMMIT_SHA}"
+        docker tag "${image}" "${target}:${CI_COMMIT_REF_SLUG}"
+        docker push "${target}:${CI_COMMIT_SHORT_SHA}"
+        docker push "${target}:${CI_COMMIT_SHA}"
+        docker push "${target}:${CI_COMMIT_REF_SLUG}"
+        echo "Pushed ${target}:${CI_COMMIT_SHORT_SHA} ${target}:${CI_COMMIT_SHA} ${target}:${CI_COMMIT_REF_SLUG}"
+      done

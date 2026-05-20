@@ -51,14 +51,15 @@ services:
   nginx:
     build:
       context: .
-      dockerfile: devops/docker/nginx/Dockerfile.nginx.dev
+      dockerfile: devops/docker/nginx/Dockerfile.nginx.prod
+      args:
+        VITE_APP_ENV: ${VITE_APP_ENV:-production}
+        VITE_FRONTEND_URL: ${VITE_FRONTEND_URL:-}
+        VITE_FRONTEND_API_URL: ${VITE_FRONTEND_API_URL:-}
     ports:
       - "8088:80"
-    volumes:
-      - ./devops/docker/nginx/${NGINX_CONF}:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
-      - frontend
 
 volumes:
   pgdata:

@@ -1,26 +1,26 @@
 # DevOps
 
-This directory holds **Docker** assets and **GitLab CI** templates for the monorepo (`backend/`, `frontend/`). The stack is wired from the repository root via `docker-compose.yml` and `Makefile`.
+Docker assets and **GitLab CI** for the monorepo (`backend/`, `frontend/`). The stack is driven from the repository root with **`docker-compose.yml`** and **`Makefile`**.
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `docker/backend/` | Node (pnpm) images for the Express API |
-| `docker/frontend/` | Node (pnpm) images for the Vite dev server |
-| `docker/nginx/` | Nginx reverse proxy (dev config and image stubs) |
-| `docker/postgres/` | Database bootstrap SQL mounted on first Postgres start |
-| `ci/gitlab/` | GitLab CI/CD YAML fragments (stages: build, test, deploy) |
+| `docker/backend/` | Node (pnpm) image for the Express API (dev Dockerfile used by Compose) |
+| `docker/frontend/` | Node (pnpm) image for the Vite **dev** server |
+| `docker/nginx/` | Multi-stage **production-style** nginx image: builds the SPA, serves static files, proxies `/api/` to the backend |
+| `docker/postgres/` | `init.sql` mounted on first database start |
+| `ci/gitlab/` | `pipeline.yml`, `test.yml`, `build.yml`; `deploy.yml` is placeholder notes only |
+| `ci/scripts/` | Helper shell scripts used in CI |
 
 ## Local development (Docker Compose)
 
-From the **repo root**:
+From the **repository root**:
 
-1. Copy and edit environment variables (see root `.env.example`). Values must match what `docker-compose.yml` interpolates, including:
-   - **Postgres (Compose):** `POSTGRES_USER_DEV`, `POSTGRES_PASSWORD_DEV`, `POSTGRES_DB_DEV`
-   - **Backend:** `DATABASE_URL` pointing at the `db` service (same user/password/database as above)
-   - **Nginx:** `NGINX_CONF` — filename under `devops/docker/nginx/` (e.g. `nginx.dev.conf`)
-   - **Vite:** `VITE_APP_ENV`, `VITE_FRONTEND_URL`, `VITE_FRONTEND_API_URL`
+1. Copy **`.env.example`** to **`.env`** and fill in values Compose and the nginx **build args** need:
+   - **`POSTGRES_USER`**, **`POSTGRES_PASSWORD`**, **`POSTGRES_DB`** — Postgres service ; must stay consistent with **`DATABASE_URL`** in `.env`.
+   - **`VITE_APP_ENV`**, **`VITE_FRONTEND_URL`**, **`VITE_FRONTEND_API_URL`** — passed into the **`nginx`** image build so **`pnpm run build`** bakes the correct public API base (typical value: `http://localhost:8088/api/v1`).
+   - Optional application keys in the template (`APP_*`) are placeholders unless your services read them.
 
 2. Start the stack:
 
@@ -28,38 +28,47 @@ From the **repo root**:
    make up
    ```
 
-   Typical URLs (see `make help`):
+   Typical URLs (`make help`):
 
-   - App (via Nginx): `http://localhost:8088`
-   - API (direct): `http://localhost:3000`
-   - Vite (direct): `http://localhost:5173`
+   - **App (nginx):** `http://localhost:8088` — static SPA + `/api/v1/...` → backend  
+   - **API (direct):** `http://localhost:3000`  
+   - **Vite dev (direct):** `http://localhost:5173`
 
-### Services (how `devops` is used)
+### Services (current `docker-compose.yml`)
 
-- **db** — `postgres:16-alpine` with `devops/docker/postgres/init.sql` applied on first init (creates the `users` table; the backend also ensures this schema at runtime).
-- **backend** — built with `devops/docker/backend/Dockerfile.backend.dev` (Node 22, pnpm 9, `pnpm start`).
-- **frontend** — built with `devops/docker/frontend/Dockerfile.frontend.dev` (Vite dev server on `0.0.0.0:5173`).
-- **nginx** — built with `devops/docker/nginx/Dockerfile.nginx.dev`; mounts `devops/docker/nginx/${NGINX_CONF}` as the default site. The sample `nginx.dev.conf` proxies `/` to the frontend and `/api/` to the backend (with a rewrite so `/api/v1/...` maps to backend routes).
+| Service | Role |
+|---------|------|
+| **db** | `postgres:16-alpine`; healthcheck; `./devops/docker/postgres/init.sql` on first init. The backend also ensures the schema at runtime. |
+| **backend** | `Dockerfile.backend.dev` — Node 22, **pnpm**, `pnpm start`. Waits on healthy **db**. |
+| **frontend** | `Dockerfile.frontend.dev` — Vite on `0.0.0.0:5173` (dev HMR when you open this port directly). |
+| **nginx** | **`Dockerfile.nginx.prod`** — multi-stage build: installs frontend deps, **`pnpm run build`**, copies **`dist/`** into nginx; **`nginx.prod.conf`** serves static files and proxies **`/api/`** to **backend**. Does not proxy to the **frontend** container (the UI is embedded as static files). |
+
+Build contexts are the **repository root** so Dockerfiles can `COPY backend/` and `COPY frontend/`.
 
 ## Docker images
 
-| File | Status |
-|------|--------|
-| `Dockerfile.backend.dev` | Used by Compose for local API |
-| `Dockerfile.frontend.dev` | Used by Compose for local UI |
-| `Dockerfile.nginx.dev` | Minimal Nginx Alpine base for dev |
-| `Dockerfile.*.prod` | Placeholders (empty); extend when defining production builds |
-
-Build contexts are the **repository root** so Dockerfiles can `COPY backend/` and `COPY frontend/` as in the current Compose file.
+| Dockerfile | Role |
+|------------|------|
+| `Dockerfile.backend.dev` | Used by Compose for the API |
+| `Dockerfile.frontend.dev` | Used by Compose for Vite dev |
+| `Dockerfile.nginx.prod` | Used by Compose for port **8088** (static UI + API reverse proxy) |
+| `Dockerfile.*.prod` (backend/frontend) | Reserved for future production-only images |
 
 ## GitLab CI
 
-- `ci/gitlab/pipeline.yml` — intended entry for a multi-file pipeline.
-- `ci/gitlab/build.yml`, `test.yml`, `deploy.yml` — stage fragments (currently empty stubs).
+- **`ci/gitlab/pipeline.yml`** — defines stages **lint**, **test**, **build** and includes `test.yml` and `build.yml`.
+- **`ci/gitlab/test.yml`** — lint jobs (Compose, Hadolint, yamllint, shellcheck, backend checks, ESLint), **unit** (Node test runner + c8 + JUnit), **integration** and **e2e** (Compose + JUnit), **test:images** (image build + **Trivy** + registry tags).
+- **`ci/gitlab/build.yml`** — **`build`** job: builds images, tags **`$CI_COMMIT_SHA`**, **`$CI_COMMIT_SHORT_SHA`**, **`$CI_COMMIT_REF_SLUG`**, pushes to **`$CI_REGISTRY_IMAGE/{backend,frontend,nginx}`** (requires registry credentials in CI variables).
+- **`ci/gitlab/deploy.yml`** — comments only; not included in the active pipeline.
 
-The root `.gitlab-ci.yml` ships with the `include` for `devops/ci/gitlab/pipeline.yml` **commented out**. Uncomment and fill the YAML files when you are ready to run CI on GitLab.
+The root **`.gitlab-ci.yml`** contains:
 
-## Related files at repo root
+```yaml
+include:
+  - local: 'devops/ci/gitlab/pipeline.yml'
+```
 
-- `docker-compose.yml` — service definitions referencing this folder.
-- `Makefile` — common Compose workflows (`up`, `down`, `logs`, `shell`, etc.).
+## Related files at the repo root
+
+- **`docker-compose.yml`** — services and nginx build args  
+- **`Makefile`** — Compose workflows (`up`, `down`, `logs`, `shell`, …)

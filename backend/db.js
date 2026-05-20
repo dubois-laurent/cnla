@@ -40,4 +40,4 @@ async function waitForDb({ retries = 30, delayMs = 1000 } = {}) {
   }
 }
 
-module.exports = { pool, ensureUsersTable, waitForDb };
+module.exports = { pool, ensureUsersTable, waitForDb, connectionString };
