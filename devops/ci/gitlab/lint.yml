@@ -1,10 +1,9 @@
 .feature-branch-rules:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == "develop"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^hotfix\/.*/
 
 .docker-job:
   image: docker:26-cli
@@ -29,7 +28,7 @@
   image: node:22-alpine
   extends: .feature-branch-rules
   before_script:
-    - corepack enable && corepack prepare pnpm@latest --activate
+    - corepack enable && corepack prepare pnpm@9 --activate
 
 lint:compose:
   stage: lint
@@ -79,6 +78,7 @@ lint:backend:
   allow_failure: false
   script:
     - cd backend && pnpm install --frozen-lockfile
+    - node --check app.js
     - node --check server.js
     - node -e "require('express'); require('pg'); console.log('backend deps OK')"
 
