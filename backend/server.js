@@ -1,27 +1,15 @@
-const express = require("express");
-const usersRouter = require("./routes/users");
+const http = require("http");
+const { createApp } = require("./app");
 const { ensureUsersTable, waitForDb } = require("./db");
 
-const app = express();
-app.use(express.json());
-
-app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "api", users: "/users" });
-});
-
-app.use("/users", usersRouter);
-
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: "Erreur serveur" });
-});
-
+const app = createApp();
 const port = Number(process.env.PORT) || 3000;
 
 async function main() {
   await waitForDb();
   await ensureUsersTable();
-  app.listen(port, "0.0.0.0", () => {
+  const server = http.createServer(app);
+  server.listen(port, "0.0.0.0", () => {
     console.log(`API sur http://0.0.0.0:${port}`);
   });
 }
