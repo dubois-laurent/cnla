@@ -35,7 +35,7 @@ build:
     - job: test:images
   variables:
     ECR_REGISTRY: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-    ECR_REPOSITORY: gr8/aws-hetic
+    ECR_REPOSITORY: grp2/aws-hetic
   before_script:
     - echo "Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA"
     - until docker info >/dev/null 2>&1; do sleep 1; done
