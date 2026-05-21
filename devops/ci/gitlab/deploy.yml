@@ -1,0 +1,127 @@
+# ── Règles : uniquement sur dev et main (pas les feature branches) ────────────
+.deploy-only-rules:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ── Base : AWS CLI (credentials via variables CI/CD) ──────────────────────────
+# Variables GitLab CI/CD requises :
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_ACCOUNT_ID
+#   EC2_INSTANCE_ID  — identifiant de l'instance cible (ex: i-0abc123def456)
+.aws-job:
+  image:
+    name: amazon/aws-cli
+    entrypoint: [""]
+  extends: .deploy-only-rules
+  variables:
+    AWS_DEFAULT_REGION: $AWS_REGION
+
+# ── Deploy : EC2 via SSM ───────────────────────────────────────────────────────
+deploy:ec2:
+  stage: deploy
+  extends: .aws-job
+  needs:
+    - job: build
+  environment:
+    name: $CI_COMMIT_REF_SLUG
+  variables:
+    ECR_REGISTRY: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+    ECR_REPOSITORY: grp2/aws-hetic
+  before_script:
+    - echo "=== [deploy] Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA ==="
+    - echo "=== [deploy] Instance EC2 : $EC2_INSTANCE_ID · région : $AWS_REGION ==="
+  script:
+    - echo "=== [deploy] Construction du payload SSM ==="
+    - |
+      cat > /tmp/ssm-deploy.json << ENDJSON
+      {
+        "InstanceIds": ["$EC2_INSTANCE_ID"],
+        "DocumentName": "AWS-RunShellScript",
+        "Comment": "deploy $CI_COMMIT_SHORT_SHA ($CI_COMMIT_REF_SLUG)",
+        "TimeoutSeconds": 300,
+        "Parameters": {
+          "commands": [
+            "set -e",
+            "echo Authentification ECR...",
+            "aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY",
+            "echo Pull backend:$CI_COMMIT_SHORT_SHA...",
+            "docker pull $ECR_REGISTRY/$ECR_REPOSITORY/backend:$CI_COMMIT_SHORT_SHA",
+            "echo Pull frontend:$CI_COMMIT_SHORT_SHA...",
+            "docker pull $ECR_REGISTRY/$ECR_REPOSITORY/frontend:$CI_COMMIT_SHORT_SHA",
+            "echo Pull nginx:$CI_COMMIT_SHORT_SHA...",
+            "docker pull $ECR_REGISTRY/$ECR_REPOSITORY/nginx:$CI_COMMIT_SHORT_SHA",
+            "echo Redemarrage des services...",
+            "cd /srv/app && IMAGE_TAG=$CI_COMMIT_SHORT_SHA ECR_REGISTRY=$ECR_REGISTRY ECR_REPOSITORY=$ECR_REPOSITORY docker compose -f docker-compose.prod.yml up -d --remove-orphans backend frontend nginx",
+            "echo Deploy termine."
+          ]
+        }
+      }
+      ENDJSON
+    - echo "=== [deploy] Envoi de la commande SSM ==="
+    - |
+      CMD_ID=$(aws ssm send-command \
+        --cli-input-json file:///tmp/ssm-deploy.json \
+        --query "Command.CommandId" \
+        --output text)
+      echo "  Command ID : $CMD_ID"
+
+      echo "=== [deploy] Attente du résultat SSM (max 5 min) ==="
+      retries=0
+      while true; do
+        STATUS=$(aws ssm get-command-invocation \
+          --command-id "$CMD_ID" \
+          --instance-id "$EC2_INSTANCE_ID" \
+          --query "Status" \
+          --output text 2>/dev/null || echo "Pending")
+        echo "  Statut : $STATUS (tentative $retries)"
+        case "$STATUS" in
+          Success)
+            echo "=== [deploy] Déploiement réussi — $CI_COMMIT_SHORT_SHA en ligne ==="
+            break
+            ;;
+          Failed|Cancelled|TimedOut|Undeliverable|DeliveryTimedOut)
+            echo "--- Sortie standard (EC2) ---"
+            aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "StandardOutputContent" \
+              --output text
+            echo "--- Sortie d'erreur (EC2) ---"
+            aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "StandardErrorContent" \
+              --output text
+            echo "ERREUR : déploiement SSM échoué (status=$STATUS)." >&2
+            exit 1
+            ;;
+        esac
+        retries=$((retries + 1))
+        if [ "$retries" -ge 60 ]; then
+          echo "ERREUR : timeout GitLab CI — SSM sans réponse après 5 minutes." >&2
+          exit 1
+        fi
+        sleep 5
+      done
+
+# ── FinOps : nettoyage des anciennes images ECR ────────────────────────────────
+finops:ecr:prune:
+  stage: finops
+  extends: .aws-job
+  needs:
+    - job: deploy:ec2
+  variables:
+    ECR_NAMESPACE: grp2/aws-hetic
+    ECR_KEEP_COUNT: "10"
+  before_script:
+    - echo "=== [finops] Nettoyage ECR — $ECR_KEEP_COUNT images conservées par dépôt ==="
+    - chmod +x devops/aws/ecr/prune_image.sh devops/aws/lib/args.sh devops/aws/lib/finops_common.sh
+  script:
+    - |
+      sh devops/aws/ecr/prune_image.sh \
+        aws_region="$AWS_REGION" \
+        aws_account_id="$AWS_ACCOUNT_ID" \
+        ecr_namespace="$ECR_NAMESPACE" \
+        keep_count="$ECR_KEEP_COUNT" \
+        dry_run=false \
+        confirm=yes
