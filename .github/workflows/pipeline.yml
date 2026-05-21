@@ -1,0 +1,458 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, dev, "feature/**"]
+  pull_request:
+    branches: [main, dev]
+
+env:
+  COMPOSE_PROJECT_NAME: projet_cnla
+  # On GitHub Actions, Docker is on the host → services are reachable at localhost
+  COMPOSE_PUBLISH_HOST: localhost
+
+# ── LINT ──────────────────────────────────────────────────────────────────────
+jobs:
+  lint-compose:
+    name: "lint:compose"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy .env
+        run: cp .env.example .env
+      - name: Validate docker-compose.yml
+        run: |
+          echo "=== [lint:compose] Validation docker-compose.yml ==="
+          docker compose -f docker-compose.yml config --quiet
+          echo "=== [lint:compose] OK ==="
+
+  lint-hadolint:
+    name: "lint:hadolint"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install hadolint
+        run: |
+          echo "=== [lint:hadolint] Installation hadolint v2.12.0 ==="
+          curl -sSfL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
+            -o /usr/local/bin/hadolint
+          chmod +x /usr/local/bin/hadolint
+          hadolint --version
+      - name: Lint Dockerfiles
+        run: |
+          echo "=== [lint:hadolint] Scan des Dockerfiles dans devops/docker ==="
+          find devops/docker -name 'Dockerfile*' -print0 | while IFS= read -r -d '' file; do
+            echo "--- [lint:hadolint] $file ---"
+            hadolint "$file"
+            echo "  OK"
+          done
+          echo "=== [lint:hadolint] OK ==="
+
+  lint-yaml:
+    name: "lint:yaml"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pip install yamllint
+      - name: Lint YAML
+        run: |
+          echo "=== [lint:yaml] Validation YAML ==="
+          yamllint --no-warnings -c .yamllint.yml \
+            docker-compose.yml \
+            devops/ci/gitlab/
+          echo "=== [lint:yaml] OK ==="
+
+  lint-shell:
+    name: "lint:shell"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: |
+          echo "=== [lint:shell] Installation shellcheck ==="
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck --version
+      - name: Shellcheck
+        run: |
+          echo "=== [lint:shell] Analyse des scripts shell ==="
+          shellcheck devops/ci/scripts/wait-for-url.sh
+          echo "=== [lint:shell] OK ==="
+
+  lint-backend:
+    name: "lint:backend"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9 --activate
+      - name: Install deps
+        run: |
+          echo "=== [lint:backend] Installation des dépendances ==="
+          cd backend && pnpm install --frozen-lockfile
+      - name: Check syntax & imports
+        run: |
+          cd backend
+          echo "=== [lint:backend] Vérification syntaxe app.js ==="
+          node --check app.js
+          echo "=== [lint:backend] Vérification syntaxe server.js ==="
+          node --check server.js
+          echo "=== [lint:backend] Vérification imports express/pg ==="
+          node -e "require('express'); require('pg'); console.log('backend deps OK')"
+          echo "=== [lint:backend] OK ==="
+
+  lint-eslint:
+    name: "lint:eslint"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9 --activate
+      - name: Install deps & run ESLint
+        run: |
+          echo "=== [lint:eslint] Installation des dépendances frontend ==="
+          cd frontend && pnpm install --frozen-lockfile
+          echo "=== [lint:eslint] Exécution ESLint ==="
+          pnpm run lint
+          echo "=== [lint:eslint] OK ==="
+
+# ── TEST ───────────────────────────────────────────────────────────────────────
+  test-unit:
+    name: "test:unit"
+    runs-on: ubuntu-latest
+    needs:
+      - lint-compose
+      - lint-hadolint
+      - lint-yaml
+      - lint-shell
+      - lint-backend
+      - lint-eslint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9 --activate
+      - name: Install deps
+        run: |
+          echo "=== [test:unit] Installation des dépendances ==="
+          cd backend && pnpm install --frozen-lockfile
+      - name: Run unit tests with coverage
+        run: |
+          echo "=== [test:unit] Préparation dossier reports ==="
+          mkdir -p reports
+          echo "=== [test:unit] Exécution tests unitaires avec couverture ==="
+          cd backend && pnpm exec c8 \
+            --reporter=lcov --reporter=cobertura --reporter=text-summary \
+            node --test \
+              --test-reporter=junit \
+              --test-reporter-destination=../reports/junit.xml \
+              test/unit/*.test.js
+          echo "=== [test:unit] OK ==="
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-unit
+          path: |
+            reports/junit.xml
+            backend/coverage/
+
+  test-integration:
+    name: "test:integration"
+    runs-on: ubuntu-latest
+    needs: [lint-compose]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy .env
+        run: cp .env.example .env
+      - name: Build db + backend
+        run: |
+          echo "=== [test:integration] Build des images db + backend ==="
+          docker compose -f docker-compose.yml build db backend
+      - name: Start services
+        run: |
+          echo "=== [test:integration] Démarrage des services ==="
+          docker compose -f docker-compose.yml up -d db backend
+      - name: Wait for API
+        run: |
+          echo "=== [test:integration] Attente que l'API soit prête sur :3000 ==="
+          chmod +x devops/ci/scripts/wait-for-url.sh
+          devops/ci/scripts/wait-for-url.sh "http://localhost:3000/"
+      - name: Run integration tests
+        run: |
+          echo "=== [test:integration] Exécution des tests d'intégration ==="
+          mkdir -p reports
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work/backend \
+            --network "${COMPOSE_PROJECT_NAME}_default" \
+            -e API_URL=http://backend:3000 \
+            node:22-alpine \
+            sh -ec 'corepack enable && corepack prepare pnpm@9 --activate && pnpm install --frozen-lockfile && mkdir -p ../reports && node --test --test-reporter=junit --test-reporter-destination=../reports/junit-integration.xml test/integration/*.test.js'
+      - name: Stop services
+        if: always()
+        run: |
+          echo "=== [test:integration] Arrêt et nettoyage des services ==="
+          docker compose -f docker-compose.yml down -v
+          echo "=== [test:integration] OK ==="
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-integration
+          path: reports/junit-integration.xml
+
+  test-e2e:
+    name: "test:e2e"
+    runs-on: ubuntu-latest
+    needs: [lint-compose]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy .env
+        run: cp .env.example .env
+      - name: Build full stack
+        run: |
+          echo "=== [test:e2e] Build de toutes les images ==="
+          docker compose -f docker-compose.yml build
+      - name: Start full stack
+        run: |
+          echo "=== [test:e2e] Démarrage de la stack complète ==="
+          docker compose -f docker-compose.yml up -d
+      - name: Wait for nginx & API
+        run: |
+          echo "=== [test:e2e] Attente nginx :8088 ==="
+          chmod +x devops/ci/scripts/wait-for-url.sh
+          devops/ci/scripts/wait-for-url.sh "http://localhost:8088/"
+          echo "=== [test:e2e] Attente API :8088/api/v1/users ==="
+          devops/ci/scripts/wait-for-url.sh "http://localhost:8088/api/v1/users"
+      - name: Run E2E tests
+        run: |
+          echo "=== [test:e2e] Exécution des tests E2E ==="
+          mkdir -p reports
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work/backend \
+            --network "${COMPOSE_PROJECT_NAME}_default" \
+            -e E2E_BASE_URL=http://nginx:80 \
+            node:22-alpine \
+            sh -ec 'corepack enable && corepack prepare pnpm@9 --activate && pnpm install --frozen-lockfile && mkdir -p ../reports && node --test --test-reporter=spec --test-reporter=junit --test-reporter-destination=- --test-reporter-destination=../reports/junit-e2e.xml test/e2e/nginx.e2e.test.js'
+      - name: Stop stack
+        if: always()
+        run: |
+          echo "=== [test:e2e] Arrêt et nettoyage de la stack ==="
+          docker compose -f docker-compose.yml down -v
+          echo "=== [test:e2e] OK ==="
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-e2e
+          path: reports/junit-e2e.xml
+
+  test-images:
+    name: "test:images"
+    runs-on: ubuntu-latest
+    needs: [test-unit, test-integration, test-e2e]
+    env:
+      TRIVY_VERSION: "0.70.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy .env
+        run: cp .env.example .env
+      - name: Install Trivy
+        run: |
+          echo "=== [test:images] Installation Trivy v${TRIVY_VERSION} ==="
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tgz
+          tar -xzf /tmp/trivy.tgz -C /usr/local/bin trivy
+          rm -f /tmp/trivy.tgz
+          trivy --version
+      - name: Build and scan images
+        run: |
+          echo "=== [test:images] Build des images backend, frontend, nginx ==="
+          docker compose -f docker-compose.yml build backend frontend nginx
+          echo "=== [test:images] Scan de sécurité Trivy (HIGH + CRITICAL) ==="
+          for service in backend frontend nginx; do
+            image="${COMPOSE_PROJECT_NAME}-${service}"
+            echo "--- [test:images] Trivy scan : ${image} ---"
+            trivy image --exit-code 0 --severity HIGH,CRITICAL "${image}"
+            echo "  Tag :${GITHUB_SHA:0:8}"
+            echo "  Tag :$(echo "$GITHUB_REF_NAME" | tr '/' '-' | tr '[:upper:]' '[:lower:]')"
+          done
+          echo "=== [test:images] OK ==="
+
+# ── BUILD ──────────────────────────────────────────────────────────────────────
+  build:
+    name: "build"
+    runs-on: ubuntu-latest
+    needs:
+      - lint-compose
+      - lint-hadolint
+      - lint-yaml
+      - lint-shell
+      - lint-backend
+      - lint-eslint
+      - test-unit
+      - test-integration
+      - test-e2e
+      - test-images
+    env:
+      ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+      ECR_REPOSITORY: grp2/aws-hetic
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy .env
+        run: cp .env.example .env
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Compute image tags
+        run: |
+          echo "SHORT_SHA=${GITHUB_SHA:0:8}" >> "$GITHUB_ENV"
+          echo "REF_SLUG=$(echo "$GITHUB_REF_NAME" | tr '/' '-' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+      - name: Build & push images to ECR
+        run: |
+          echo "=== [build] Branch $GITHUB_REF_NAME · commit ${GITHUB_SHA:0:8} ==="
+          echo "=== [build] Construction des images Docker ==="
+          docker compose -f docker-compose.yml build backend frontend nginx
+          echo "=== [build] Construction terminée ==="
+          for service in backend frontend nginx; do
+            echo "--- [build] Traitement du service : $service ---"
+            image="${COMPOSE_PROJECT_NAME}-${service}"
+            target="${ECR_REGISTRY}/${ECR_REPOSITORY}/${service}"
+            echo "  Image locale : $image"
+            echo "  Cible ECR    : $target"
+            echo "  Tag :${SHORT_SHA}..."
+            docker tag "${image}" "${target}:${SHORT_SHA}"
+            echo "  Tag :${GITHUB_SHA}..."
+            docker tag "${image}" "${target}:${GITHUB_SHA}"
+            echo "  Tag :${REF_SLUG}..."
+            docker tag "${image}" "${target}:${REF_SLUG}"
+            echo "  Tag :latest..."
+            docker tag "${image}" "${target}:latest"
+            docker push "${target}:${SHORT_SHA}"
+            docker push "${target}:${GITHUB_SHA}"
+            docker push "${target}:${REF_SLUG}"
+            docker push "${target}:latest"
+            echo "  OK - $service poussé sur ECR avec les 4 tags."
+          done
+          echo "=== [build] Tous les services ont été poussés sur ECR ==="
+
+# ── DEPLOY ─────────────────────────────────────────────────────────────────────
+  deploy-preprod:
+    name: "deploy:preprod"
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    environment: preprod
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy to preprod via SSM
+        env:
+          PREPROD_INSTANCE_ID: ${{ vars.PREPROD_INSTANCE_ID }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          echo "=== [deploy:preprod] Branch $GITHUB_REF_NAME · commit ${GITHUB_SHA:0:8} ==="
+          echo "  Instance  : ${PREPROD_INSTANCE_ID}"
+          echo "  Image tag : ${GITHUB_SHA:0:8}"
+
+          ECR="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          NS="grp2/aws-hetic"
+          TAG="${GITHUB_SHA:0:8}"
+
+          CMD=$(printf '%s\n' \
+            'set -e' \
+            "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR}" \
+            "for svc in backend frontend nginx; do docker pull ${ECR}/${NS}/\${svc}:${TAG}; done" \
+            'docker stop nginx frontend backend 2>/dev/null || true' \
+            'docker rm   nginx frontend backend 2>/dev/null || true' \
+            'docker network create app-net 2>/dev/null || true' \
+            "docker run -d --name backend  --network app-net --restart unless-stopped ${ECR}/${NS}/backend:${TAG}" \
+            "docker run -d --name frontend --network app-net --restart unless-stopped ${ECR}/${NS}/frontend:${TAG}" \
+            "docker run -d --name nginx    --network app-net --restart unless-stopped -p 80:80 ${ECR}/${NS}/nginx:${TAG}" \
+          )
+
+          echo "  Encodage base64 de la commande SSM..."
+          B64=$(printf '%s' "${CMD}" | base64 | tr -d '\n')
+
+          echo "  Envoi de la commande SSM vers ${PREPROD_INSTANCE_ID}..."
+          CID=$(aws ssm send-command \
+            --instance-ids "${PREPROD_INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"echo ${B64} | base64 -d | sh\"]" \
+            --comment "deploy:preprod ${TAG}" \
+            --query 'Command.CommandId' --output text)
+
+          echo "  CommandId: ${CID} — waiting..."
+          aws ssm wait command-executed \
+            --command-id "${CID}" \
+            --instance-id "${PREPROD_INSTANCE_ID}"
+
+          echo "  Récupération du statut de la commande..."
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "${CID}" \
+            --instance-id "${PREPROD_INSTANCE_ID}" \
+            --query 'Status' --output text)
+          echo "  Statut SSM : ${STATUS}"
+
+          if [ "${STATUS}" != "Success" ]; then
+            echo "ERREUR : déploiement échoué (status: ${STATUS}) — stderr SSM :" >&2
+            aws ssm get-command-invocation \
+              --command-id "${CID}" \
+              --instance-id "${PREPROD_INSTANCE_ID}" \
+              --query 'StandardErrorContent' --output text >&2
+            exit 1
+          fi
+          echo "=== [deploy:preprod] OK ==="
+
+  deploy-prod:
+    name: "deploy:prod"
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Rolling deploy to prod via SSM + ALB
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          PROD_INSTANCE_1_ID: ${{ vars.PROD_INSTANCE_1_ID }}
+          PROD_INSTANCE_2_ID: ${{ vars.PROD_INSTANCE_2_ID }}
+          PROD_TG_ARN: ${{ vars.PROD_TG_ARN }}
+        run: |
+          echo "=== [deploy:prod] Branch $GITHUB_REF_NAME · commit ${GITHUB_SHA:0:8} ==="
+          echo "  Instances : ${PROD_INSTANCE_1_ID}  ${PROD_INSTANCE_2_ID}"
+          echo "  TG ARN    : ${PROD_TG_ARN}"
+          echo "  Image tag : ${GITHUB_SHA:0:8}"
+          echo "=== [deploy:prod] Lancement rolling_deploy.sh ==="
+          sh devops/aws/ec2/rolling_deploy.sh \
+            aws_region="${AWS_REGION}" \
+            aws_account_id="${AWS_ACCOUNT_ID}" \
+            image_tag="${GITHUB_SHA:0:8}" \
+            target_group_arn="${PROD_TG_ARN}" \
+            "instance_ids=${PROD_INSTANCE_1_ID} ${PROD_INSTANCE_2_ID}"
+          echo "=== [deploy:prod] OK ==="
