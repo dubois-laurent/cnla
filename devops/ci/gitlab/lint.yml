@@ -35,8 +35,9 @@ lint:compose:
   extends: .docker-job
   allow_failure: false
   script:
+    - echo "=== [lint:compose] Validation docker-compose.yml ==="
     - docker compose -f docker-compose.yml config --quiet
-    - echo "docker-compose.yml valide."
+    - echo "=== [lint:compose] OK ==="
 
 lint:hadolint:
   stage: lint
@@ -46,11 +47,14 @@ lint:hadolint:
     name: hadolint/hadolint:v2.12.0-alpine
     entrypoint: [""]
   script:
+    - echo "=== [lint:hadolint] Scan des Dockerfiles dans devops/docker ==="
     - |
       find devops/docker -name 'Dockerfile*' -print0 | while IFS= read -r -d '' file; do
-        echo "=== hadolint $file ==="
+        echo "--- [lint:hadolint] $file ---"
         hadolint "$file"
+        echo "  OK"
       done
+    - echo "=== [lint:hadolint] OK ==="
 
 lint:yaml:
   stage: lint
@@ -60,7 +64,9 @@ lint:yaml:
     name: cytopia/yamllint:latest
     entrypoint: [""]
   script:
+    - echo "=== [lint:yaml] Validation YAML (docker-compose, .gitlab-ci, ci/gitlab/) ==="
     - yamllint --no-warnings -c .yamllint.yml docker-compose.yml .gitlab-ci.yml devops/ci/gitlab/
+    - echo "=== [lint:yaml] OK ==="
 
 lint:shell:
   stage: lint
@@ -68,23 +74,36 @@ lint:shell:
   allow_failure: false
   image: alpine:3.21
   before_script:
+    - echo "=== [lint:shell] Installation de shellcheck ==="
     - apk add --no-cache shellcheck
+    - shellcheck --version
   script:
+    - echo "=== [lint:shell] Analyse des scripts shell ==="
     - shellcheck devops/ci/scripts/wait-for-url.sh
+    - echo "=== [lint:shell] OK ==="
 
 lint:backend:
   stage: lint
   extends: .node-job
   allow_failure: false
   script:
+    - echo "=== [lint:backend] Installation des dépendances ==="
     - cd backend && pnpm install --frozen-lockfile
+    - echo "=== [lint:backend] Vérification syntaxe app.js ==="
     - node --check app.js
+    - echo "=== [lint:backend] Vérification syntaxe server.js ==="
     - node --check server.js
+    - echo "=== [lint:backend] Vérification imports express/pg ==="
     - node -e "require('express'); require('pg'); console.log('backend deps OK')"
+    - echo "=== [lint:backend] OK ==="
 
 lint:eslint:
   stage: lint
   extends: .node-job
   allow_failure: false
   script:
-    - cd frontend && pnpm install --frozen-lockfile && pnpm run lint
+    - echo "=== [lint:eslint] Installation des dépendances frontend ==="
+    - cd frontend && pnpm install --frozen-lockfile
+    - echo "=== [lint:eslint] Exécution ESLint ==="
+    - pnpm run lint
+    - echo "=== [lint:eslint] OK ==="

@@ -8,12 +8,16 @@ test:unit:
   extends: .node-job
   coverage: '/Lines\s*:\s*([\d.]+)%/'
   script:
+    - echo "=== [test:unit] Installation des dépendances ==="
     - cd backend && pnpm install --frozen-lockfile
+    - echo "=== [test:unit] Préparation dossier reports ==="
     - mkdir -p ../reports
+    - echo "=== [test:unit] Exécution tests unitaires avec couverture ==="
     - >
       pnpm exec c8 --reporter=lcov --reporter=cobertura --reporter=text-summary
       node --test --test-reporter=junit --test-reporter-destination=../reports/junit.xml
       test/unit/*.test.js
+    - echo "=== [test:unit] OK ==="
   artifacts:
     when: always
     expire_in: 1 week
@@ -31,8 +35,11 @@ test:integration:
   extends: .docker-job
   needs: ["lint:compose"]
   script:
+    - echo "=== [test:integration] Build des images db + backend ==="
     - docker compose -f docker-compose.yml build db backend
+    - echo "=== [test:integration] Démarrage des services ==="
     - docker compose -f docker-compose.yml up -d db backend
+    - echo "=== [test:integration] Attente que l'API soit prête sur :3000 ==="
     - chmod +x devops/ci/scripts/wait-for-url.sh
     - devops/ci/scripts/wait-for-url.sh "http://${COMPOSE_PUBLISH_HOST}:3000/"
     - |
@@ -43,7 +50,9 @@ test:integration:
         -e API_URL=http://backend:3000 \
         node:22-alpine \
         sh -ec 'corepack enable && corepack prepare pnpm@9 --activate && pnpm install --frozen-lockfile && mkdir -p ../reports && node --test --test-reporter=junit --test-reporter-destination=../reports/junit-integration.xml test/integration/*.test.js'
+    - echo "=== [test:integration] Arrêt et nettoyage des services ==="
     - docker compose -f docker-compose.yml down -v
+    - echo "=== [test:integration] OK ==="
   artifacts:
     when: always
     expire_in: 1 week
@@ -57,10 +66,14 @@ test:e2e:
   extends: .docker-job
   needs: ["lint:compose"]
   script:
+    - echo "=== [test:e2e] Build de toutes les images ==="
     - docker compose -f docker-compose.yml build
+    - echo "=== [test:e2e] Démarrage de la stack complète ==="
     - docker compose -f docker-compose.yml up -d
+    - echo "=== [test:e2e] Attente nginx :8088 ==="
     - chmod +x devops/ci/scripts/wait-for-url.sh
     - devops/ci/scripts/wait-for-url.sh "http://${COMPOSE_PUBLISH_HOST}:8088/"
+    - echo "=== [test:e2e] Attente API :8088/api/v1/users ==="
     - devops/ci/scripts/wait-for-url.sh "http://${COMPOSE_PUBLISH_HOST}:8088/api/v1/users"
     - |
       docker run --rm \
@@ -70,7 +83,9 @@ test:e2e:
         -e E2E_BASE_URL=http://nginx:80 \
         node:22-alpine \
         sh -ec 'corepack enable && corepack prepare pnpm@9 --activate && pnpm install --frozen-lockfile && mkdir -p ../reports && node --test --test-reporter=spec --test-reporter=junit --test-reporter-destination=- --test-reporter-destination=../reports/junit-e2e.xml test/e2e/nginx.e2e.test.js'
+    - echo "=== [test:e2e] Arrêt et nettoyage de la stack ==="
     - docker compose -f docker-compose.yml down -v
+    - echo "=== [test:e2e] OK ==="
   artifacts:
     when: always
     expire_in: 1 week
@@ -101,14 +116,17 @@ test:images:
       rm -f /tmp/trivy.tgz
     - trivy --version
   script:
+    - echo "=== [test:images] Build des images backend, frontend, nginx ==="
     - docker compose -f docker-compose.yml build backend frontend nginx
+    - echo "=== [test:images] Scan de sécurité Trivy (HIGH + CRITICAL) ==="
     - |
       for service in backend frontend nginx; do
         image="${COMPOSE_PROJECT_NAME}-${service}"
-        echo "=== Trivy ${image} ==="
+        echo "--- [test:images] Trivy scan : ${image} ---"
         trivy image --exit-code 0 --severity HIGH,CRITICAL "${image}"
         docker tag "${image}" "${CI_REGISTRY_IMAGE}/${service}:${CI_COMMIT_SHORT_SHA}"
         docker tag "${image}" "${CI_REGISTRY_IMAGE}/${service}:${CI_COMMIT_REF_SLUG}"
-        echo "Tagged ${CI_REGISTRY_IMAGE}/${service}:${CI_COMMIT_SHORT_SHA}"
-        echo "Tagged ${CI_REGISTRY_IMAGE}/${service}:${CI_COMMIT_REF_SLUG}"
+        echo "  Tag :${CI_COMMIT_SHORT_SHA}"
+        echo "  Tag :${CI_COMMIT_REF_SLUG}"
       done
+    - echo "=== [test:images] OK ==="
