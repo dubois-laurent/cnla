@@ -1,6 +1,6 @@
 # Backend API
 
-Small **Express 5** REST API backed by **PostgreSQL** (`pg`). It exposes CRUD operations for a `users` table, waits for the database on startup, and creates the table if it does not exist.
+Small **Express 5** REST API backed by **PostgreSQL** (`pg`). CRUD for a `users` table, DB wait/retry on startup, and **CREATE TABLE IF NOT EXISTS** when the table is missing.
 
 ## Requirements
 
@@ -10,27 +10,27 @@ Small **Express 5** REST API backed by **PostgreSQL** (`pg`). It exposes CRUD op
 
 ## Environment variables
 
-| Variable        | Description                                                                 |
-|----------------|------------------------------------------------------------------------------|
-| `DATABASE_URL` | PostgreSQL connection string (e.g. `postgresql://user:pass@host:5432/dbname`). Optional query params `serverVersion` and `charset` are stripped before connecting. |
-| `PORT`         | HTTP listen port. Default: `3000`.                                          |
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL URL (e.g. `postgresql://user:pass@host:5432/dbname`). Optional query params `serverVersion` and `charset` are stripped before connecting. |
+| `PORT` | HTTP port. Default: **3000**. |
 
-If `DATABASE_URL` is missing, `pg` falls back to its default behaviour (typically local socket / env-based config).
+If `DATABASE_URL` is unset, `pg` falls back to its default behaviour.
 
 ## Full stack with Make (repo root)
 
 The root **`Makefile`** wraps **Docker Compose** (Postgres, backend, frontend, nginx). From the **repository root**:
 
-1. Set **`DATABASE_URL`** and related Postgres variables in the root **`.env`** (see root `.env.example` and `devops/README.md`; Compose expects `POSTGRES_*_DEV` for the database service).
+1. Set **`POSTGRES_USER`**, **`POSTGRES_PASSWORD`**, **`POSTGRES_DB`**, and **`DATABASE_URL`** in **`.env`** (see root **`.env.example`** and **`devops/README.md`**). Compose expects the `db` hostname for the database service.
 2. Start everything:
 
    ```bash
    make up
    ```
 
-3. See **`make help`** for URLs and targets (`make logs`, `make logs s=backend`, `make shell s=backend`, `make down`, etc.).
+3. Use **`make help`** for URLs and targets (`make logs`, `make logs s=backend`, `make shell s=backend`, `make down`, …).
 
-The API is exposed on **`http://localhost:3000`** when mapped by Compose; nginx on **`http://localhost:8088`** proxies `/api/` to the backend.
+The API is on **`http://localhost:3000`** when published by Compose. The main browser entry is **`http://localhost:8088`** (nginx static app + `/api/` proxy).
 
 ## Install (local Node only)
 
@@ -41,44 +41,43 @@ pnpm install
 
 ## Run (local Node + Postgres)
 
-Ensure PostgreSQL is running and `DATABASE_URL` points to your database, then:
+With PostgreSQL running and **`DATABASE_URL`** set:
 
 ```bash
 pnpm start
 ```
 
-The server binds to `0.0.0.0` and logs `API sur http://0.0.0.0:<PORT>`.
+The server listens on **`0.0.0.0`** and logs a startup line to the console.
 
 On startup it:
 
-1. Retries connecting to the database (default: 30 attempts, 1s apart).
-2. Ensures the `users` table exists (`CREATE TABLE IF NOT EXISTS`).
+1. Retries the database connection (default: 30 attempts, 1s apart).
+2. Ensures the **`users`** table exists.
 
-For Docker-based development, prefer **`make up`** at the repo root instead of running `pnpm start` on the host.
+For the containerized stack, prefer **`make up`** at the repo root instead of **`pnpm start`** on the host.
 
 ## API
 
-Base path for user resources: **`/users`**.
-
-JSON bodies use **`Content-Type: application/json`**.
+Base path for users: **`/users`**.  
+JSON bodies: **`Content-Type: application/json`**.
 
 ### Health / discovery
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET`  | `/`  | `{ "ok": true, "service": "api", "users": "/users" }` |
+| `GET` | `/` | `{ "ok": true, "service": "api", "users": "/users" }` |
 
 ### Users
 
-| Method | Path        | Description |
-|--------|-------------|-------------|
-| `GET`  | `/users`    | List all users, ordered by `id` ascending. |
-| `GET`  | `/users/:id`| Get one user by numeric `id`. |
-| `POST` | `/users`    | Create a user. Body: `{ "email", "name" }` (both required, trimmed). |
-| `PUT`  | `/users/:id`| Replace `email` and `name` for the given `id`. Body: `{ "email", "name" }`. |
-| `DELETE` | `/users/:id` | Delete the user. Response: `204 No Content` on success. |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/users` | List users, ordered by `id` ascending |
+| `GET` | `/users/:id` | Get one user by numeric `id` |
+| `POST` | `/users` | Create. Body: `{ "email", "name" }` (required, trimmed) |
+| `PUT` | `/users/:id` | Replace `email` and `name`. Body: `{ "email", "name" }` |
+| `DELETE` | `/users/:id` | Delete. **204** on success |
 
-**User JSON shape** (camelCase in responses):
+**Response shape** (camelCase):
 
 ```json
 {
@@ -91,43 +90,52 @@ JSON bodies use **`Content-Type: application/json`**.
 
 ### HTTP status codes (users)
 
-- `200` — OK (`GET` list / single, `PUT` success)
-- `201` — Created (`POST`)
-- `204` — No content (`DELETE` success)
-- `400` — Invalid `id` or missing `email` / `name`
-- `404` — User not found
-- `409` — Duplicate email (unique constraint)
-- `500` — Unhandled server error (`{ "error": "Erreur serveur" }`)
+- **200** — OK (list / get / PUT)
+- **201** — Created (POST)
+- **204** — No content (DELETE)
+- **400** — Invalid `id` or missing `email` / `name`
+- **404** — Not found
+- **409** — Duplicate email
+- **500** — Server error (JSON body may include `{ "error": "..." }`)
 
-Validation and conflict messages in responses are in **French**, matching the current implementation.
+Validation and human-readable errors are whatever the handlers return in **`routes/users.js`** and **`app.js`**.
 
 ## Database schema
 
-Table `users` (created automatically if missing):
+Table **`users`** (created automatically if missing):
 
-| Column       | Type        | Notes                          |
-|-------------|-------------|--------------------------------|
-| `id`        | `SERIAL`    | Primary key                    |
-| `email`     | `VARCHAR(255)` | `NOT NULL`, `UNIQUE`       |
-| `name`      | `VARCHAR(255)` | `NOT NULL`                 |
-| `created_at`| `TIMESTAMPTZ`  | Default `NOW()`            |
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `SERIAL` | Primary key |
+| `email` | `VARCHAR(255)` | `NOT NULL`, `UNIQUE` |
+| `name` | `VARCHAR(255)` | `NOT NULL` |
+| `created_at` | `TIMESTAMPTZ` | Default `NOW()` |
 
 ## Project layout
 
 ```
 backend/
-├── server.js          # App entry: middleware, routes, DB bootstrap, listen
-├── db.js              # Pool, waitForDb, ensureUsersTable, DATABASE_URL cleanup
+├── server.js          # HTTP server entry
+├── app.js             # Express app factory
+├── db.js              # Pool, waitForDb, ensureUsersTable
 ├── routes/
-│   └── users.js       # /users CRUD handlers
+│   └── users.js       # /users handlers
+├── test/
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
 ├── package.json
 └── pnpm-lock.yaml
 ```
 
 ## Scripts
 
-| Script    | Command        |
-|-----------|----------------|
-| `start`   | `node server.js` |
+| Script | Command |
+|--------|---------|
+| `start` | `node server.js` |
+| `test:unit` | Node built-in test runner, `test/unit/*.test.js` |
+| `test:unit:coverage` | Same with **c8** reporters |
+| `test:integration` | `test/integration/*.test.js` |
+| `test:e2e` | `test/e2e/*.test.js` |
 
-There is no bundled test or lint script in `package.json`; add them if you extend the project.
+CI runs unit tests with **c8** and JUnit output; see **`devops/ci/gitlab/test.yml`**.
