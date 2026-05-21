@@ -88,7 +88,7 @@ ENDJSON
 aws cloudwatch put-dashboard \
   --region "$aws_region" \
   --dashboard-name "$dashboard_name" \
-  --dashboard-body file:///tmp/cw-dashboard.json
+  --dashboard-body "$(cat /tmp/cw-dashboard.json)"
 echo "  Dashboard '$dashboard_name' mis à jour."
 
 # ── Alarme CPU ─────────────────────────────────────────────────────────────────
