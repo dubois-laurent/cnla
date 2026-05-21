@@ -1,0 +1,46 @@
+# VCS metadata
+
+.git
+.gitignore
+\*\*/.git
+
+# Dependencies and build outputs
+
+**/node_modules
+**/dist
+**/dist-ssr
+**/build
+**/.vite
+**/.cache
+**/coverage
+**/.nyc_output
+
+# Environment variables and secrets
+
+.env
+.env.\*
+!.env.example
+
+# Logs and temporary files
+
+**/\*.log
+**/tmp
+\*\*/temp
+
+# Tools and editors
+
+.idea
+.vscode
+\*\*/.DS_Store
+Thumbs.db
+
+# CI / docs — not needed for COPY backend/ or frontend/
+
+.gitlab-ci.yml
+devops/ci/
+CHANGELOG.md
+Makefile
+
+# Local Docker Compose files
+
+docker-compose.override.yml
