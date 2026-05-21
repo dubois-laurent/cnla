@@ -18,8 +18,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Copy .env
-        run: cp .env.example .env
+      - name: Generate CI .env
+        run: |
+          cat > .env << 'EOF'
+          APP_ENV=ci
+          APP_DEBUG=false
+          APP_SECRET=ci-secret-not-used
+          NGINX_CONF=nginx.dev.conf
+          VITE_APP_ENV=ci
+          VITE_FRONTEND_URL=http://localhost:8088
+          VITE_FRONTEND_API_URL=http://localhost:8088/api/v1
+          POSTGRES_USER=ci_user
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_DB=ci_db
+          DATABASE_URL=postgresql://ci_user:ci_password@db:5432/ci_db?serverVersion=16&charset=utf8
+          AWS_ACCOUNT_ID=000000000000
+          AWS_REGION=eu-central-1
+          AWS_ACCESS_KEY_ID=dummy
+          AWS_SECRET_ACCESS_KEY=dummy
+          EOF
       - name: Validate docker-compose.yml
         run: |
           echo "=== [lint:compose] Validation docker-compose.yml ==="
@@ -170,8 +187,25 @@ jobs:
     needs: [lint-compose]
     steps:
       - uses: actions/checkout@v4
-      - name: Copy .env
-        run: cp .env.example .env
+      - name: Generate CI .env
+        run: |
+          cat > .env << 'EOF'
+          APP_ENV=ci
+          APP_DEBUG=false
+          APP_SECRET=ci-secret-not-used
+          NGINX_CONF=nginx.dev.conf
+          VITE_APP_ENV=ci
+          VITE_FRONTEND_URL=http://localhost:8088
+          VITE_FRONTEND_API_URL=http://localhost:8088/api/v1
+          POSTGRES_USER=ci_user
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_DB=ci_db
+          DATABASE_URL=postgresql://ci_user:ci_password@db:5432/ci_db?serverVersion=16&charset=utf8
+          AWS_ACCOUNT_ID=000000000000
+          AWS_REGION=eu-central-1
+          AWS_ACCESS_KEY_ID=dummy
+          AWS_SECRET_ACCESS_KEY=dummy
+          EOF
       - name: Build db + backend
         run: |
           echo "=== [test:integration] Build des images db + backend ==="
@@ -214,8 +248,25 @@ jobs:
     needs: [lint-compose]
     steps:
       - uses: actions/checkout@v4
-      - name: Copy .env
-        run: cp .env.example .env
+      - name: Generate CI .env
+        run: |
+          cat > .env << 'EOF'
+          APP_ENV=ci
+          APP_DEBUG=false
+          APP_SECRET=ci-secret-not-used
+          NGINX_CONF=nginx.dev.conf
+          VITE_APP_ENV=ci
+          VITE_FRONTEND_URL=http://localhost:8088
+          VITE_FRONTEND_API_URL=http://localhost:8088/api/v1
+          POSTGRES_USER=ci_user
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_DB=ci_db
+          DATABASE_URL=postgresql://ci_user:ci_password@db:5432/ci_db?serverVersion=16&charset=utf8
+          AWS_ACCOUNT_ID=000000000000
+          AWS_REGION=eu-central-1
+          AWS_ACCESS_KEY_ID=dummy
+          AWS_SECRET_ACCESS_KEY=dummy
+          EOF
       - name: Build full stack
         run: |
           echo "=== [test:e2e] Build de toutes les images ==="
@@ -262,8 +313,25 @@ jobs:
       TRIVY_VERSION: "0.70.0"
     steps:
       - uses: actions/checkout@v4
-      - name: Copy .env
-        run: cp .env.example .env
+      - name: Generate CI .env
+        run: |
+          cat > .env << 'EOF'
+          APP_ENV=ci
+          APP_DEBUG=false
+          APP_SECRET=ci-secret-not-used
+          NGINX_CONF=nginx.dev.conf
+          VITE_APP_ENV=ci
+          VITE_FRONTEND_URL=http://localhost:8088
+          VITE_FRONTEND_API_URL=http://localhost:8088/api/v1
+          POSTGRES_USER=ci_user
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_DB=ci_db
+          DATABASE_URL=postgresql://ci_user:ci_password@db:5432/ci_db?serverVersion=16&charset=utf8
+          AWS_ACCOUNT_ID=000000000000
+          AWS_REGION=eu-central-1
+          AWS_ACCESS_KEY_ID=dummy
+          AWS_SECRET_ACCESS_KEY=dummy
+          EOF
       - name: Install Trivy
         run: |
           echo "=== [test:images] Installation Trivy v${TRIVY_VERSION} ==="
@@ -306,8 +374,25 @@ jobs:
       ECR_REPOSITORY: grp2/aws-hetic
     steps:
       - uses: actions/checkout@v4
-      - name: Copy .env
-        run: cp .env.example .env
+      - name: Generate CI .env
+        run: |
+          cat > .env << 'EOF'
+          APP_ENV=ci
+          APP_DEBUG=false
+          APP_SECRET=ci-secret-not-used
+          NGINX_CONF=nginx.dev.conf
+          VITE_APP_ENV=ci
+          VITE_FRONTEND_URL=http://localhost:8088
+          VITE_FRONTEND_API_URL=http://localhost:8088/api/v1
+          POSTGRES_USER=ci_user
+          POSTGRES_PASSWORD=ci_password
+          POSTGRES_DB=ci_db
+          DATABASE_URL=postgresql://ci_user:ci_password@db:5432/ci_db?serverVersion=16&charset=utf8
+          AWS_ACCOUNT_ID=000000000000
+          AWS_REGION=eu-central-1
+          AWS_ACCESS_KEY_ID=dummy
+          AWS_SECRET_ACCESS_KEY=dummy
+          EOF
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
