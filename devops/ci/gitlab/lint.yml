@@ -1,0 +1,109 @@
+.feature-branch-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^feature\/.*/
+
+.docker-job:
+  image: docker:26-cli
+  services:
+    - name: docker:26-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  extends: .feature-branch-rules
+  before_script:
+    - echo "Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA · pipeline $CI_PIPELINE_ID"
+    - echo "Waiting for Docker daemon..."
+    - until docker info >/dev/null 2>&1; do sleep 1; done
+    - docker version
+    - apk add --no-cache gettext curl
+    - envsubst < .env.example > .env
+    - echo ".env ready."
+
+.node-job:
+  image: node:22-alpine
+  extends: .feature-branch-rules
+  before_script:
+    - corepack enable && corepack prepare pnpm@9 --activate
+
+lint:compose:
+  stage: lint
+  extends: .docker-job
+  allow_failure: false
+  script:
+    - echo "=== [lint:compose] Validation docker-compose.yml ==="
+    - docker compose -f docker-compose.yml config --quiet
+    - echo "=== [lint:compose] OK ==="
+
+lint:hadolint:
+  stage: lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  image:
+    name: hadolint/hadolint:v2.12.0-alpine
+    entrypoint: [""]
+  script:
+    - echo "=== [lint:hadolint] Scan des Dockerfiles dans devops/docker ==="
+    - |
+      find devops/docker -name 'Dockerfile*' -print0 | while IFS= read -r -d '' file; do
+        echo "--- [lint:hadolint] $file ---"
+        hadolint "$file"
+        echo "  OK"
+      done
+    - echo "=== [lint:hadolint] OK ==="
+
+lint:yaml:
+  stage: lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  image:
+    name: cytopia/yamllint:latest
+    entrypoint: [""]
+  script:
+    - echo "=== [lint:yaml] Validation YAML (docker-compose, .gitlab-ci, ci/gitlab/) ==="
+    - yamllint --no-warnings -c .yamllint.yml docker-compose.yml .gitlab-ci.yml devops/ci/gitlab/
+    - echo "=== [lint:yaml] OK ==="
+
+lint:shell:
+  stage: lint
+  extends: .feature-branch-rules
+  allow_failure: false
+  image: alpine:3.21
+  before_script:
+    - echo "=== [lint:shell] Installation de shellcheck ==="
+    - apk add --no-cache shellcheck
+    - shellcheck --version
+  script:
+    - echo "=== [lint:shell] Analyse des scripts shell ==="
+    - shellcheck devops/ci/scripts/wait-for-url.sh
+    - echo "=== [lint:shell] OK ==="
+
+lint:backend:
+  stage: lint
+  extends: .node-job
+  allow_failure: false
+  script:
+    - echo "=== [lint:backend] Installation des dépendances ==="
+    - cd backend && pnpm install --frozen-lockfile
+    - echo "=== [lint:backend] Vérification syntaxe app.js ==="
+    - node --check app.js
+    - echo "=== [lint:backend] Vérification syntaxe server.js ==="
+    - node --check server.js
+    - echo "=== [lint:backend] Vérification imports express/pg ==="
+    - node -e "require('express'); require('pg'); console.log('backend deps OK')"
+    - echo "=== [lint:backend] OK ==="
+
+lint:eslint:
+  stage: lint
+  extends: .node-job
+  allow_failure: false
+  script:
+    - echo "=== [lint:eslint] Installation des dépendances frontend ==="
+    - cd frontend && pnpm install --frozen-lockfile
+    - echo "=== [lint:eslint] Exécution ESLint ==="
+    - pnpm run lint
+    - echo "=== [lint:eslint] OK ==="

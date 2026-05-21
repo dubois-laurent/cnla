@@ -1,0 +1,98 @@
+.deploy-base:
+  image:
+    name: amazon/aws-cli
+    entrypoint: [""]
+  variables:
+    AWS_DEFAULT_REGION: $AWS_REGION
+  before_script:
+    - echo "=== [deploy] Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA ==="
+
+# ── PREPROD ────────────────────────────────────────────────────────────────────
+# Déclenché sur push vers dev.
+# Déploie sur l'instance unique PREPROD via SSM (pas d'ALB).
+# Variables GitLab requises : AWS_ACCOUNT_ID, AWS_REGION, PREPROD_INSTANCE_ID
+deploy:preprod:
+  stage: deploy
+  extends: .deploy-base
+  needs:
+    - job: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev" && $CI_PIPELINE_SOURCE == "push"
+  script:
+    - 'echo "  Instance  : $PREPROD_INSTANCE_ID"'
+    - 'echo "  Image tag : $CI_COMMIT_SHORT_SHA"'
+    - |
+      ECR="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+      NS="grp2/aws-hetic"
+      TAG="${CI_COMMIT_SHORT_SHA}"
+
+      CMD=$(printf '%s\n' \
+        'set -e' \
+        "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR}" \
+        "for svc in backend frontend nginx; do docker pull ${ECR}/${NS}/\${svc}:${TAG}; done" \
+        'docker stop nginx frontend backend 2>/dev/null || true' \
+        'docker rm   nginx frontend backend 2>/dev/null || true' \
+        'docker network create app-net 2>/dev/null || true' \
+        "docker run -d --name backend  --network app-net --restart unless-stopped ${ECR}/${NS}/backend:${TAG}" \
+        "docker run -d --name frontend --network app-net --restart unless-stopped ${ECR}/${NS}/frontend:${TAG}" \
+        "docker run -d --name nginx    --network app-net --restart unless-stopped -p 80:80 ${ECR}/${NS}/nginx:${TAG}" \
+      )
+
+      echo "  Encodage base64 de la commande SSM..."
+      B64=$(printf '%s' "${CMD}" | base64 | tr -d '\n')
+
+      echo "  Envoi de la commande SSM vers ${PREPROD_INSTANCE_ID}..."
+      CID=$(aws ssm send-command \
+        --instance-ids "${PREPROD_INSTANCE_ID}" \
+        --document-name "AWS-RunShellScript" \
+        --parameters "commands=[\"echo ${B64} | base64 -d | sh\"]" \
+        --comment "deploy:preprod ${TAG}" \
+        --query 'Command.CommandId' --output text)
+
+      echo "  CommandId: ${CID} — waiting..."
+      aws ssm wait command-executed \
+        --command-id "${CID}" \
+        --instance-id "${PREPROD_INSTANCE_ID}"
+
+      echo "  Récupération du statut de la commande..."
+      STATUS=$(aws ssm get-command-invocation \
+        --command-id "${CID}" \
+        --instance-id "${PREPROD_INSTANCE_ID}" \
+        --query 'Status' --output text)
+      echo "  Statut SSM : ${STATUS}"
+
+      if [ "${STATUS}" != "Success" ]; then
+        echo "ERREUR : déploiement échoué (status: ${STATUS}) — stderr SSM :" >&2
+        aws ssm get-command-invocation \
+          --command-id "${CID}" \
+          --instance-id "${PREPROD_INSTANCE_ID}" \
+          --query 'StandardErrorContent' --output text >&2
+        exit 1
+      fi
+    - echo "=== [deploy:preprod] OK ==="
+
+# ── PROD ───────────────────────────────────────────────────────────────────────
+# Déclenché sur push vers main (branche par défaut).
+# Rolling deploy sur les 2 instances PROD via rolling_deploy.sh (SSM + ALB).
+# Variables GitLab requises : AWS_ACCOUNT_ID, AWS_REGION,
+#   PROD_INSTANCE_1_ID, PROD_INSTANCE_2_ID, PROD_TG_ARN
+deploy:prod:
+  stage: deploy
+  extends: .deploy-base
+  needs:
+    - job: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  script:
+    - 'echo "  Instances : $PROD_INSTANCE_1_ID  $PROD_INSTANCE_2_ID"'
+    - 'echo "  TG ARN    : $PROD_TG_ARN"'
+    - 'echo "  Image tag : $CI_COMMIT_SHORT_SHA"'
+    - echo "=== [deploy:prod] Lancement rolling_deploy.sh ==="
+    - |
+      sh devops/aws/ec2/rolling_deploy.sh \
+        aws_region="${AWS_REGION}" \
+        aws_account_id="${AWS_ACCOUNT_ID}" \
+        image_tag="${CI_COMMIT_SHORT_SHA}" \
+        target_group_arn="${PROD_TG_ARN}" \
+        "instance_ids=${PROD_INSTANCE_1_ID} ${PROD_INSTANCE_2_ID}"
+    - echo "=== [deploy:prod] OK ==="
