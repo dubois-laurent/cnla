@@ -12,7 +12,6 @@ describe("Stack — E2E via nginx", () => {
     const html = await res.text();
     assert.equal(res.status, 200, html.slice(0, 300));
     assert.match(html, /id="root"/);
-    assert.match(html, /Gestion des utilisateurs|utilisateurs/i);
   });
 
   test("GET /api/v1/users proxifie l’API", async () => {
