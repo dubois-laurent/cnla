@@ -37,28 +37,58 @@ build:
     ECR_REGISTRY: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
     ECR_REPOSITORY: grp2/aws-hetic
   before_script:
-    - echo "Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA"
-    - until docker info >/dev/null 2>&1; do sleep 1; done
+    - echo "=== [build] Branch $CI_COMMIT_REF_NAME · commit $CI_COMMIT_SHORT_SHA ==="
+    - |
+      echo "=== [build] Attente du daemon Docker ==="
+      retries=0
+      until docker info >/dev/null 2>&1; do
+        retries=$((retries + 1))
+        if [ "$retries" -ge 30 ]; then
+          echo "ERREUR : Docker daemon injoignable après 30 secondes."
+          exit 1
+        fi
+        echo "  Docker pas encore prêt (tentative $retries/30)..."
+        sleep 1
+      done
+      echo "  Docker prêt."
+    - echo "=== [build] Installation de gettext ==="
     - apk add --no-cache gettext
+    - echo "=== [build] Génération du fichier .env depuis .env.example ==="
     - envsubst < .env.example > .env
+    - echo "=== [build] Authentification ECR ($ECR_REGISTRY) ==="
     - docker run --rm
         -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
         -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
         amazon/aws-cli ecr get-login-password --region "$AWS_REGION"
         | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+    - echo "=== [build] Authentification ECR réussie ==="
   script:
+    - echo "=== [build] Construction des images Docker (backend, frontend, nginx) ==="
     - docker compose -f docker-compose.yml build backend frontend nginx
+    - echo "=== [build] Construction terminée ==="
     - |
       for service in backend frontend nginx; do
+        echo "--- [build] Traitement du service : $service ---"
         image="${COMPOSE_PROJECT_NAME}-${service}"
         target="${ECR_REGISTRY}/${ECR_REPOSITORY}/${service}"
+        echo "  Image locale : $image"
+        echo "  Cible ECR    : $target"
+        echo "  Tag $CI_COMMIT_SHORT_SHA..."
         docker tag "${image}" "${target}:${CI_COMMIT_SHORT_SHA}"
+        echo "  Tag $CI_COMMIT_SHA..."
         docker tag "${image}" "${target}:${CI_COMMIT_SHA}"
+        echo "  Tag $CI_COMMIT_REF_SLUG..."
         docker tag "${image}" "${target}:${CI_COMMIT_REF_SLUG}"
+        echo "  Tag latest..."
         docker tag "${image}" "${target}:latest"
+        echo "  Push :$CI_COMMIT_SHORT_SHA..."
         docker push "${target}:${CI_COMMIT_SHORT_SHA}"
+        echo "  Push :$CI_COMMIT_SHA..."
         docker push "${target}:${CI_COMMIT_SHA}"
+        echo "  Push :$CI_COMMIT_REF_SLUG..."
         docker push "${target}:${CI_COMMIT_REF_SLUG}"
+        echo "  Push :latest..."
         docker push "${target}:latest"
-        echo "Pushed ${target}:${CI_COMMIT_SHORT_SHA} ${target}:${CI_COMMIT_SHA} ${target}:${CI_COMMIT_REF_SLUG} ${target}:latest"
+        echo "  OK - $service poussé sur ECR avec les 4 tags."
       done
+    - echo "=== [build] Tous les services ont été poussés sur ECR ==="
