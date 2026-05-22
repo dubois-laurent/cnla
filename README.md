@@ -1,7 +1,7 @@
 # Projet CNLA — Full-stack app · CI/CD · AWS Infrastructure
 
 > **Group 2** — HETIC  
-> Laurent Dubois · _member 2_ · _member 3_ · _member 4_
+> Laurent Dubois · Alexia Mea · Berenice kenne · Camille Paillou
 
 Monorepo for a **React + Vite** frontend, **Express** API, **PostgreSQL** database and **nginx** reverse proxy, with a full **GitLab CI/CD pipeline** deploying to **AWS** (ECR, EC2, ALB, SSM, S3, CloudWatch).
 
