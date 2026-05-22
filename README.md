@@ -228,9 +228,9 @@ Never commit secrets. Use GitLab variable masking for all AWS credentials.
 | Name | Role |
 |------|------|
 | Laurent Dubois | CEO |
-| _Member 2_ | — |
-| _Member 3_ | — |
-| _Member 4_ | — |
+| Alexia Mea  | CTO |
+| Berenice kenne | Developer |
+| Camille Paillou | Developer |
 
 ECR namespace: `grp2/aws-hetic`
 
